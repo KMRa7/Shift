@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>シフト提出フォーム</title>
+  <script src="https://static.line-scdn.net/liff/edge/2.1/sdk.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f7f7f7;
+      padding: 20px;
+      margin: 0;
+    }
+    .container {
+      background-color: #fff;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      padding: 20px;
+      max-width: 520px;
+      margin: 0 auto;
+    }
+    h1 {
+      background: linear-gradient(135deg, #13ca5e, #0fa958);
+      color: white;
+      padding: 20px;
+      border-radius: 0 15px 0 45px;
+      text-align: center;
+      margin: -20px -20px 20px -20px;
+      font-size: 22px;
+    }
+    label { font-weight: bold; display: block; margin-top: 10px; }
+    input, textarea, select {
+      width: 100%; padding: 8px; margin-top: 6px; margin-bottom: 15px;
+      border: 1px solid #ccc; border-radius: 5px;
+    }
+    button {
+      width: 100%; padding: 12px;
+      background: #13ca5e; color: white; border: none;
+      border-radius: 6px; font-size: 16px; cursor: pointer;
+    }
+    button:hover { background: #0fa958; }
+
+    table {
+      width: 100%; border-collapse: collapse; margin-top: 15px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #ccc; padding: 6px; text-align: center;
+    }
+    th { background: #e9f8ee; }
+    .shift-input {
+      width: 90%; border: 1px solid #ccc; border-radius: 4px; padding: 4px;
+    }
+
+    /* 土日・祝日 */
+    .disabled-day {
+      background-color: #eee;
+      color: #999;
+    }
+    .disabled-day input {
+      background-color: #f5f5f5;
+      pointer-events: none;
+    }
+
+    .fulltime-btn {
+      background: #007bff;
+      margin-bottom: 15px;
+    }
+    .fulltime-btn:hover {
+      background: #005ec2;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>シフト提出フォーム</h1>
+    <p>対象月を選び、平日分を入力してください。<br>土日・祝日は入力できません。</p>
+
+    <label>お名前</label>
+    <input type="text" id="staffName" placeholder="例：笹原 太郎" required>
+
+    <label>対象月</label>
+    <select id="monthSelect" onchange="generateShiftTable()">
+      <option value="0">今月</option>
+      <option value="1">翌月</option>
+    </select>
+
+    <label>備考</label>
+    <textarea id="notes" rows="2" placeholder="特記事項など"></textarea>
+
+    <button class="fulltime-btn" onclick="fillFulltime()">フルタイム（自動入力）</button>
+
+    <h2>シフト一覧</h2>
+    <table id="shiftTable">
+      <thead>
+        <tr><th>日付</th><th>曜日</th><th>開始</th><th>終了</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <button onclick="submitShift()">送信</button>
+  </div>
+
+  <script>
+    // ==== LIFF初期化 ====
+    document.addEventListener('DOMContentLoaded', function() {
+      liff.init({ liffId: '2005254357-zKma9BZk' })
+        .then(() => console.log('LIFF init OK'))
+        .catch(err => console.error('LIFF error', err));
+      generateShiftTable();
+    });
+
+    // ==== 祝日データ（2024〜2030）====
+    const holidayData = {
+      2024: ["1/1","1/8","2/11","2/23","3/20","4/29","5/3","5/4","5/5","5/6","7/15","8/11","8/12","9/16","9/22","9/23","10/14","11/3","11/4","11/23","12/23"],
+      2025: ["1/1","1/13","2/11","2/23","3/20","4/29","5/3","5/4","5/5","5/6","7/21","8/11","9/15","9/23","10/13","11/3","11/23","11/24"],
+      2026: ["1/1","1/12","2/11","2/23","3/20","4/29","5/3","5/4","5/5","5/6","7/20","8/11","9/21","9/22","9/23","10/12","11/3","11/23"],
+      2027: ["1/1","1/11","2/11","2/23","3/21","4/29","5/3","5/4","5/5","5/6","7/19","8/11","9/20","9/23","10/11","11/3","11/23"],
+      2028: ["1/1","1/10","2/11","2/23","3/20","4/29","5/3","5/4","5/5","5/6","7/17","8/11","9/18","9/22","10/9","11/3","11/23"],
+      2029: ["1/1","1/8","2/11","2/12","2/23","3/20","4/29","4/30","5/3","5/4","5/5","5/6","7/16","8/11","9/17","9/23","10/8","11/3","11/23","12/24"],
+      2030: ["1/1","1/14","2/11","2/23","3/20","4/29","5/3","5/4","5/5","5/6","7/15","8/11","9/16","9/23","10/14","11/3","11/4","11/23"]
+    };
+
+    function isHoliday(date) {
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const day = date.getDate();
+      const key = `${month}/${day}`;
+      return holidayData[year] && holidayData[year].includes(key);
+    }
+
+    // ==== シフト表生成 ====
+    function generateShiftTable() {
+      const tbody = document.querySelector('#shiftTable tbody');
+      tbody.innerHTML = '';
+      const today = new Date();
+      const monthOffset = parseInt(document.getElementById('monthSelect').value, 10);
+      const targetDate = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+      const year = targetDate.getFullYear();
+      const month = targetDate.getMonth();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const weekdayNames = ['日','月','火','水','木','金','土'];
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const date = new Date(year, month, d);
+        const day = date.getDay();
+        const holiday = isHoliday(date);
+        const isWeekend = (day === 0 || day === 6);
+        const row = document.createElement('tr');
+        if (holiday || isWeekend) row.classList.add('disabled-day');
+        const disabledAttr = (holiday || isWeekend) ? 'disabled' : '';
+        row.innerHTML = `
+          <td>${month + 1}月${d}日</td>
+          <td>${weekdayNames[day]}</td>
+          <td><input type="time" class="shift-input start" ${disabledAttr}></td>
+          <td><input type="time" class="shift-input end" ${disabledAttr}></td>
+        `;
+        tbody.appendChild(row);
+      }
+    }
+
+    // ==== フルタイム自動入力 ====
+    function fillFulltime() {
+      const rows = document.querySelectorAll('#shiftTable tbody tr');
+      rows.forEach(row => {
+        if (row.classList.contains('disabled-day')) return; // 土日祝はスキップ
+        const weekday = row.cells[1].innerText;
+        const startInput = row.querySelector('.start');
+        const endInput = row.querySelector('.end');
+
+        if (weekday === '月') {
+          startInput.value = '10:00';
+          endInput.value = '19:15';
+        } else if (['火','水','木','金'].includes(weekday)) {
+          startInput.value = '09:00';
+          endInput.value = '18:15';
+        }
+      });
+    }
+
+    // ==== 送信 ====
+    function submitShift() {
+      const name = document.getElementById('staffName').value.trim();
+      if (!name) { alert('お名前を入力してください'); return; }
+      const monthOffset = parseInt(document.getElementById('monthSelect').value, 10);
+      const target = new Date();
+      target.setMonth(target.getMonth() + monthOffset);
+      const targetMonth = `${target.getFullYear()}年${target.getMonth() + 1}月`;
+
+      const notes = document.getElementById('notes').value;
+      const rows = document.querySelectorAll('#shiftTable tbody tr');
+      let shifts = '';
+
+      rows.forEach(row => {
+        if (row.classList.contains('disabled-day')) return;
+        const date = row.cells[0].innerText;
+        const weekday = row.cells[1].innerText;
+        const start = row.querySelector('.start').value;
+        const end = row.querySelector('.end').value;
+        if (start && end) {
+          shifts += `・${date}（${weekday}） ${start}〜${end}\n`;
+        }
+      });
+
+      if (!shifts) { alert('シフトを1件以上入力してください'); return; }
+
+      const message =
+        `≪シフト提出≫\n【お名前】${name}\n【対象月】${targetMonth}\n\n【シフト】\n${shifts}\n【備考】\n${notes || 'なし'}`;
+
+      liff.sendMessages([{ type: 'text', text: message }])
+        .then(() => {
+          alert('送信が完了しました。ありがとうございます！');
+          liff.closeWindow();
+        })
+        .catch(err => {
+          console.error('送信エラー:', err);
+          alert('送信に失敗しました。再度お試しください。');
+        });
+    }
+  </script>
+</body>
+</html>
